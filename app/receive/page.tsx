@@ -30,6 +30,7 @@ export default function ReceivePage() {
   const lastFrameTimeRef = useRef(performance.now());
   const stateRef = useRef<ReceiverState>('idle'); // Track state changes in RAF loop
   const bitsRef = useRef<boolean[]>([]); // Track bits array in RAF loop
+  const fileDecodedRef = useRef(false); // Track if we've already decoded a file
 
   /**
    * Initialize webcam
@@ -51,6 +52,7 @@ export default function ReceivePage() {
           videoRef.current?.play();
           stateRef.current = 'syncing';
           bitsRef.current = [];
+          fileDecodedRef.current = false;
           setCountdown(3); // Start 3-second countdown
           setState('syncing');
           setStatus('READY IN: 3');
@@ -67,6 +69,7 @@ export default function ReceivePage() {
             } else {
               // Countdown complete, start reception
               if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+              setCountdown(-1); // Hide countdown text
               setStatus('Waiting for sync preamble...');
               startReception();
             }
@@ -145,15 +148,28 @@ export default function ReceivePage() {
 
         // Try to decode
         if (stateRef.current === 'receiving' && newBits.length >= 128 + 32 + 32) {
-          const decoded = decodeBits(newBits);
-          if (decoded.success && decoded.data) {
-            // File decoded successfully, now check for terminator signal
-            const terminatorStart = decoded.bitsReceived;
-            const bitsAfterFile = newBits.slice(terminatorStart);
-            
-            if (bitsAfterFile.length >= 16 && detectTerminator(bitsAfterFile)) {
-              console.log('[Receiver] Transmission terminator detected! Completing reception.');
-              completeReception(decoded.data, newBits);
+          // Only decode if we haven't already successfully decoded
+          if (!fileDecodedRef.current) {
+            const decoded = decodeBits(newBits);
+            if (decoded.success && decoded.data) {
+              fileDecodedRef.current = true;
+              console.log(`[Receiver] File decoded! Size: ${decoded.data.length} bytes. Waiting for terminator...`);
+            }
+          }
+          
+          // After file is decoded, check for terminator
+          if (fileDecodedRef.current && newBits.length >= 128 + 32 + 32 + 16) {
+            const decoded = decodeBits(newBits);
+            if (decoded.success && decoded.data) {
+              const terminatorStart = decoded.bitsReceived;
+              const bitsAfterFile = newBits.slice(terminatorStart);
+              
+              console.log(`[Receiver] Checking terminator. Bits after file: ${bitsAfterFile.length}. First 16: ${bitsAfterFile.slice(0, 16).map(b => b ? '1' : '0').join('')}`);
+              
+              if (detectTerminator(bitsAfterFile)) {
+                console.log('[Receiver] ✓ Transmission terminator detected! Completing reception.');
+                completeReception(decoded.data, newBits);
+              }
             }
           }
         }
@@ -268,6 +284,7 @@ export default function ReceivePage() {
 
     stateRef.current = 'idle';
     bitsRef.current = [];
+    fileDecodedRef.current = false;
     setState('idle');
     setBits([]);
     setBitsReceived(0);

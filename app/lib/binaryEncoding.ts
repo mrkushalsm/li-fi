@@ -232,16 +232,17 @@ export function getFilenameForDownload(originalName: string): string {
 
 /**
  * Detect transmission terminator (16 consecutive 1s after valid file data)
- * Returns true if terminator pattern found, false otherwise
+ * Returns true if terminator pattern found at the start of the provided bits
  */
 export function detectTerminator(bits: boolean[]): boolean {
   if (bits.length < 16) return false;
   
-  // Look for 16 consecutive 1s at the end of a valid transmission
-  const terminatorPattern = new Array(16).fill(true);
-  const lastBits = bits.slice(-16);
+  // Check if the FIRST 16 bits are all true (terminator signal)
+  for (let i = 0; i < 16; i++) {
+    if (!bits[i]) return false; // If any bit is false, no terminator
+  }
   
-  return lastBits.every((bit, idx) => bit === terminatorPattern[idx]);
+  return true;
 }
 
 /**
