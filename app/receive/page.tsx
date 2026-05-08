@@ -28,6 +28,7 @@ export default function ReceivePage() {
   const [debugPurpleStreak, setDebugPurpleStreak] = useState(0);
   const [debugShowPanel, setDebugShowPanel] = useState(true);
   const [debugThresholds, setDebugThresholds] = useState('—');
+  const [debugConditions, setDebugConditions] = useState('—');
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -136,6 +137,15 @@ export default function ReceivePage() {
         setDebugRgb(`R:${color.red} G:${color.green} B:${color.blue}`);
         setDebugColor(`rgb(${color.red}, ${color.green}, ${color.blue})`);
         setDebugThresholds(purpleCheck.checkStatus);
+
+        // Log condition status when purple thresholds pass
+        if (purpleFrame) {
+          const condText = `state:${stateRef.current === 'receiving' ? '✓' : '✗'} decoded:${fileDecodedRef.current ? '✓' : '✗'} data:${decodedFileRef.current ? '✓' : '✗'}`;
+          setDebugConditions(condText);
+          if (stateRef.current === 'receiving' || fileDecodedRef.current || decodedFileRef.current) {
+            console.log(`[Purple] Thresholds OK but condition failed: ${condText}`);
+          }
+        }
 
         if (stateRef.current === 'receiving' && fileDecodedRef.current && decodedFileRef.current && purpleFrame) {
           setDebugPurpleDetected(true);
@@ -456,6 +466,8 @@ export default function ReceivePage() {
                       Purple Streak: {debugPurpleStreak}/4
                       <br />
                       <span style={{ fontSize: '9px', color: '#00aa00' }}>{debugThresholds}</span>
+                      <br />
+                      <span style={{ fontSize: '9px', color: '#ffaa00' }}>Conditions: {debugConditions}</span>
                     </div>
                   </div>
                 </div>
