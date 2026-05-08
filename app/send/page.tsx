@@ -106,6 +106,9 @@ export default function SendPage() {
           } else {
             setCurrentBit(payloadBitCount);
             setProgress(100);
+            if (bitIndexRef.current === payloadBitCount) {
+              console.log(`[Sender] Starting purple end marker phase at frame ${bitIndexRef.current}. Color: ${frame.color}`);
+            }
           }
 
           bitIndexRef.current++;

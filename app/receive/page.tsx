@@ -39,7 +39,11 @@ export default function ReceivePage() {
   };
 
   const isPurpleEndFrame = (red: number, green: number, blue: number) => {
-    return red >= 110 && blue >= 110 && green <= 170 && red + blue >= green * 2;
+    const isPurple = red >= 110 && blue >= 110 && green <= 170 && red + blue >= green * 2;
+    if (red > 100 && blue > 100) {
+      console.log(`[Receiver] Color sample RGB(${red}, ${green}, ${blue}) - isPurple: ${isPurple}`);
+    }
+    return isPurple;
   };
 
   /**
@@ -115,16 +119,19 @@ export default function ReceivePage() {
 
         if (stateRef.current === 'receiving' && fileDecodedRef.current && decodedFileRef.current && purpleFrame) {
           purpleStreakRef.current += 1;
+          console.log(`[Receiver] Purple frame detected! Streak: ${purpleStreakRef.current}/4`);
           setStatus('END SIGNAL DETECTED...');
 
           if (purpleStreakRef.current >= 4) {
-            console.log('[Receiver] Purple end marker confirmed. Completing reception.');
+            console.log('[Receiver] ✓ Purple end marker confirmed (4 frames). Completing reception.');
             completeReception(decodedFileRef.current, bitsRef.current);
           }
 
           lastFrameTimeRef.current = currentTime;
           rafRef.current = requestAnimationFrame(receive);
           return;
+        } else if (stateRef.current === 'receiving' && fileDecodedRef.current && decodedFileRef.current && !purpleFrame) {
+          console.log(`[Receiver] Waiting for purple end marker. RGB: (${color.red}, ${color.green}, ${color.blue})`);
         }
 
         purpleStreakRef.current = 0;
