@@ -1,0 +1,212 @@
+.page {
+  width: 100%;
+  min-height: 100vh;
+  background: #000;
+  color: #00ff00;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  display: flex;
+  flex-direction: column;
+}
+
+.transmitterScreen {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  position: relative;
+}
+
+.content {
+  text-align: center;
+  padding: 40px;
+  max-width: 600px;
+}
+
+.content h1 {
+  font-size: 2.5rem;
+  margin-bottom: 10px;
+  color: #00ff00;
+  text-shadow: 0 0 10px rgba(0, 255, 0, 0.5);
+  letter-spacing: 2px;
+}
+
+.subtitle {
+  font-size: 0.95rem;
+  color: #00aa00;
+  margin-bottom: 30px;
+  opacity: 0.8;
+}
+
+.uploadSection {
+  margin-bottom: 30px;
+}
+
+.fileLabel {
+  display: block;
+  font-size: 0.9rem;
+  margin-bottom: 15px;
+  color: #00ff00;
+  text-align: left;
+}
+
+.fileInput {
+  width: 100%;
+  padding: 10px;
+  background: #1a1a1a;
+  border: 2px solid #00ff00;
+  color: #00ff00;
+  font-family: monospace;
+  font-size: 0.9rem;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.fileInput:hover {
+  border-color: #00dd00;
+  box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
+}
+
+.fileInput:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.fileInfo {
+  margin-top: 10px;
+  font-size: 0.85rem;
+  color: #00aa00;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
+}
+
+.button {
+  padding: 12px 30px;
+  background: #00ff00;
+  color: #000;
+  border: none;
+  font-family: monospace;
+  font-size: 1rem;
+  font-weight: bold;
+  cursor: pointer;
+  margin-top: 20px;
+  letter-spacing: 1px;
+  transition: all 0.3s ease;
+}
+
+.button:hover:not(:disabled) {
+  background: #00dd00;
+  box-shadow: 0 0 15px rgba(0, 255, 0, 0.6);
+  transform: scale(1.05);
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.error {
+  color: #ff0000;
+  font-size: 0.9rem;
+  margin: 15px 0;
+  padding: 10px;
+  border: 1px solid #ff0000;
+  background: rgba(255, 0, 0, 0.1);
+}
+
+.transmission {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.transmissionInfo {
+  text-align: center;
+  padding: 40px;
+}
+
+.transmissionInfo h2 {
+  font-size: 2rem;
+  margin-bottom: 30px;
+  color: #00ff00;
+  text-shadow: 0 0 15px rgba(0, 255, 0, 0.7);
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    text-shadow: 0 0 15px rgba(0, 255, 0, 0.7);
+  }
+  50% {
+    text-shadow: 0 0 25px rgba(0, 255, 0, 1);
+  }
+}
+
+.bitDisplay {
+  font-size: 1.5rem;
+  margin-bottom: 20px;
+  color: #00ff00;
+  font-weight: bold;
+  font-family: 'Courier New', monospace;
+}
+
+.progressBar {
+  width: 100%;
+  height: 30px;
+  background: #1a1a1a;
+  border: 2px solid #00ff00;
+  margin: 20px 0;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    #00ff00,
+    #00dd00,
+    #00ff00
+  );
+  box-shadow: 0 0 10px rgba(0, 255, 0, 0.8);
+  transition: width 0.1s linear;
+}
+
+.percentageDisplay {
+  font-size: 1.2rem;
+  color: #00ff00;
+  margin: 15px 0;
+  font-weight: bold;
+}
+
+.stopButton {
+  padding: 10px 25px;
+  background: #ff0000;
+  color: #fff;
+  border: none;
+  font-family: monospace;
+  font-size: 0.95rem;
+  font-weight: bold;
+  cursor: pointer;
+  margin-top: 20px;
+  letter-spacing: 1px;
+  transition: all 0.3s ease;
+}
+
+.stopButton:hover {
+  background: #dd0000;
+  box-shadow: 0 0 15px rgba(255, 0, 0, 0.6);
+  transform: scale(1.05);
+}
+
+.footer {
+  padding: 20px;
+  text-align: center;
+  color: #00aa00;
+  font-size: 0.85rem;
+  border-top: 1px solid #00ff00;
+  background: #0a0a0a;
+}
