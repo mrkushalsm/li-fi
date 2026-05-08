@@ -1,8 +1,15 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { encodeFile, downloadBlob, getFilenameForDownload, generateTerminator } from '@/app/lib/binaryEncoding';
+import { encodeFile, downloadBlob, getFilenameForDownload } from '@/app/lib/binaryEncoding';
 import styles from './send.module.css';
+
+type TransmissionFrame =
+  | { kind: 'bit'; color: string }
+  | { kind: 'end'; color: string };
+
+const END_MARKER_FRAMES = 30;
+const END_MARKER_COLOR = '#b300ff';
 
 export default function SendPage() {
   const [file, setFile] = useState<File | null>(null);
@@ -51,17 +58,25 @@ export default function SendPage() {
 
       // Encode the file to bits
       const result = await encodeFile(file);
-      
-      // Append terminator signal (16 consecutive 1s) to signal end of transmission
-      const bitsWithTerminator = [...result.bits, ...generateTerminator()];
-      
-      setEncodedBits(bitsWithTerminator);
-      setTotalBits(bitsWithTerminator.length);
+
+      const transmissionFrames: TransmissionFrame[] = [
+        ...result.bits.map((bit) => ({
+          kind: 'bit' as const,
+          color: bit ? '#FFFFFF' : '#000000',
+        })),
+        ...Array.from({ length: END_MARKER_FRAMES }, () => ({
+          kind: 'end' as const,
+          color: END_MARKER_COLOR,
+        })),
+      ];
+
+      setEncodedBits(result.bits);
+      setTotalBits(result.bits.length);
       setProgress(0);
       setCurrentBit(0);
 
       // Start the RAF transmission loop
-      startTransmission(bitsWithTerminator);
+      startTransmission(transmissionFrames, result.bits.length);
     } catch (err) {
       setError(`Encoding failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
       setIsTransmitting(false);
@@ -71,24 +86,27 @@ export default function SendPage() {
   /**
    * RAF-based transmission at 30fps
    */
-  const startTransmission = (bits: boolean[]) => {
+  const startTransmission = (frames: TransmissionFrame[], payloadBitCount: number) => {
     const frameInterval = 1000 / 30; // ~33.33ms per frame
 
     const transmit = (currentTime: number) => {
       const elapsed = currentTime - lastTimeRef.current;
 
       if (elapsed >= frameInterval) {
-        // Time for next bit
-        if (bitIndexRef.current < bits.length) {
-          const bit = bits[bitIndexRef.current];
+        if (bitIndexRef.current < frames.length) {
+          const frame = frames[bitIndexRef.current];
 
-          // Set screen color based on bit
           if (containerRef.current) {
-            containerRef.current.style.backgroundColor = bit ? '#FFFFFF' : '#000000';
+            containerRef.current.style.backgroundColor = frame.color;
           }
 
-          setCurrentBit(bitIndexRef.current);
-          setProgress((bitIndexRef.current / bits.length) * 100);
+          if (frame.kind === 'bit') {
+            setCurrentBit(bitIndexRef.current);
+            setProgress((bitIndexRef.current / payloadBitCount) * 100);
+          } else {
+            setCurrentBit(payloadBitCount);
+            setProgress(100);
+          }
 
           bitIndexRef.current++;
           lastTimeRef.current = currentTime;

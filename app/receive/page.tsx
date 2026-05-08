@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { decodeBits, createBlob, downloadBlob, detectSyncPreamble, detectTerminator } from '@/app/lib/binaryEncoding';
+import { decodeBits, createBlob, downloadBlob, detectSyncPreamble } from '@/app/lib/binaryEncoding';
 import styles from './receive.module.css';
 
 type ReceiverState = 'idle' | 'waiting' | 'syncing' | 'receiving' | 'complete' | 'error';
@@ -31,7 +31,16 @@ export default function ReceivePage() {
   const stateRef = useRef<ReceiverState>('idle'); // Track state changes in RAF loop
   const bitsRef = useRef<boolean[]>([]); // Track bits array in RAF loop
   const fileDecodedRef = useRef(false); // Track if we've already decoded a file
-  const expectedTotalBitsRef = useRef<number | null>(null); // Track when transmission should end
+  const decodedFileRef = useRef<Uint8Array | null>(null); // Cache decoded payload until the purple end marker arrives
+  const purpleStreakRef = useRef(0); // Count consecutive purple frames
+
+  const isBinaryWhiteFrame = (brightness: number, red: number, green: number, blue: number) => {
+    return brightness >= 220 && red >= 200 && green >= 200 && blue >= 200;
+  };
+
+  const isPurpleEndFrame = (red: number, green: number, blue: number) => {
+    return red >= 110 && blue >= 110 && green <= 170 && red + blue >= green * 2;
+  };
 
   /**
    * Initialize webcam
@@ -54,7 +63,8 @@ export default function ReceivePage() {
           stateRef.current = 'syncing';
           bitsRef.current = [];
           fileDecodedRef.current = false;
-          expectedTotalBitsRef.current = null;
+          decodedFileRef.current = null;
+          purpleStreakRef.current = 0;
           setCountdown(3); // Start 3-second countdown
           setState('syncing');
           setStatus('Prepare camera');
@@ -96,11 +106,36 @@ export default function ReceivePage() {
       const elapsed = currentTime - lastFrameTimeRef.current;
 
       if (elapsed >= frameInterval) {
-        const brightness = samplePixelBrightness();
-        const bit = brightness > 180; // Threshold (lowered from 200 for better detection)
+        const color = samplePixelColor();
+        const brightness = color.brightness;
+        const purpleFrame = isPurpleEndFrame(color.red, color.green, color.blue);
 
         // Update display
         setDisplayBrightness(brightness);
+
+        if (stateRef.current === 'receiving' && fileDecodedRef.current && decodedFileRef.current && purpleFrame) {
+          purpleStreakRef.current += 1;
+          setStatus('END SIGNAL DETECTED...');
+
+          if (purpleStreakRef.current >= 4) {
+            console.log('[Receiver] Purple end marker confirmed. Completing reception.');
+            completeReception(decodedFileRef.current, bitsRef.current);
+          }
+
+          lastFrameTimeRef.current = currentTime;
+          rafRef.current = requestAnimationFrame(receive);
+          return;
+        }
+
+        purpleStreakRef.current = 0;
+
+        if (fileDecodedRef.current) {
+          lastFrameTimeRef.current = currentTime;
+          rafRef.current = requestAnimationFrame(receive);
+          return;
+        }
+
+        const bit = isBinaryWhiteFrame(brightness, color.red, color.green, color.blue);
 
         // Add to bits using ref
         bitsRef.current.push(bit);
@@ -111,7 +146,7 @@ export default function ReceivePage() {
         // Debug: log recent bits every 50 bits
         if (newBits.length % 50 === 0) {
           const recentBits = newBits.slice(-16).map(b => b ? '1' : '0').join('');
-          console.log(`[Receiver] ${newBits.length} bits received. Last 16: ${recentBits}, Brightness: ${brightness}, State: ${stateRef.current}`);
+          console.log(`[Receiver] ${newBits.length} bits received. Last 16: ${recentBits}, RGB: ${color.red}/${color.green}/${color.blue}, State: ${stateRef.current}`);
         }
 
         // Update brightness history
@@ -154,23 +189,9 @@ export default function ReceivePage() {
             const decoded = decodeBits(newBits);
             if (decoded.success && decoded.data) {
               fileDecodedRef.current = true;
-              expectedTotalBitsRef.current = decoded.bitsReceived + 16;
-              console.log(`[Receiver] File decoded! Size: ${decoded.data.length} bytes. Waiting for terminator...`);
-            }
-          }
-          
-          // After file is decoded, close as soon as the full terminator window is present
-          if (fileDecodedRef.current && expectedTotalBitsRef.current !== null && newBits.length >= expectedTotalBitsRef.current) {
-            const decoded = decodeBits(newBits);
-            if (decoded.success && decoded.data) {
-              const bitsAfterFile = newBits.slice(decoded.bitsReceived, decoded.bitsReceived + 16);
-              
-              console.log(`[Receiver] Checking terminator. First 16: ${bitsAfterFile.map(b => b ? '1' : '0').join('')}`);
-              
-              if (detectTerminator(bitsAfterFile)) {
-                console.log('[Receiver] ✓ Transmission terminator detected! Completing reception.');
-                completeReception(decoded.data, newBits);
-              }
+              decodedFileRef.current = decoded.data;
+              console.log(`[Receiver] File decoded! Size: ${decoded.data.length} bytes. Waiting for purple end marker...`);
+              setStatus('File received. Waiting for purple end signal...');
             }
           }
         }
@@ -185,19 +206,25 @@ export default function ReceivePage() {
   };
 
   /**
-   * Sample center pixel brightness
+   * Sample center pixel color and brightness
    */
-  const samplePixelBrightness = (): number => {
-    if (!videoRef.current || !canvasRef.current) return 128;
+  const samplePixelColor = (): { brightness: number; red: number; green: number; blue: number } => {
+    if (!videoRef.current || !canvasRef.current) {
+      return { brightness: 128, red: 128, green: 128, blue: 128 };
+    }
 
     const ctx = canvasRef.current.getContext('2d');
-    if (!ctx) return 128;
+    if (!ctx) {
+      return { brightness: 128, red: 128, green: 128, blue: 128 };
+    }
 
     const video = videoRef.current;
     canvasRef.current.width = video.videoWidth;
     canvasRef.current.height = video.videoHeight;
 
-    if (canvasRef.current.width === 0 || canvasRef.current.height === 0) return 128;
+    if (canvasRef.current.width === 0 || canvasRef.current.height === 0) {
+      return { brightness: 128, red: 128, green: 128, blue: 128 };
+    }
 
     ctx.drawImage(video, 0, 0);
 
@@ -211,16 +238,28 @@ export default function ReceivePage() {
     const imageData = ctx.getImageData(x, y, sampleSize, sampleSize);
     const data = imageData.data;
 
-    // Calculate average brightness
     let totalBrightness = 0;
+    let totalRed = 0;
+    let totalGreen = 0;
+    let totalBlue = 0;
+
     for (let i = 0; i < data.length; i += 4) {
       const r = data[i];
       const g = data[i + 1];
       const b = data[i + 2];
       totalBrightness += (r + g + b) / 3;
+      totalRed += r;
+      totalGreen += g;
+      totalBlue += b;
     }
 
-    return Math.round(totalBrightness / (imageData.data.length / 4));
+    const sampleCount = imageData.data.length / 4;
+    return {
+      brightness: Math.round(totalBrightness / sampleCount),
+      red: Math.round(totalRed / sampleCount),
+      green: Math.round(totalGreen / sampleCount),
+      blue: Math.round(totalBlue / sampleCount),
+    };
   };
 
   /**
@@ -286,7 +325,8 @@ export default function ReceivePage() {
     stateRef.current = 'idle';
     bitsRef.current = [];
     fileDecodedRef.current = false;
-    expectedTotalBitsRef.current = null;
+    decodedFileRef.current = null;
+    purpleStreakRef.current = 0;
     setState('idle');
     setBits([]);
     setBitsReceived(0);
@@ -320,6 +360,8 @@ export default function ReceivePage() {
         const stream = videoRef.current.srcObject as MediaStream;
         stream.getTracks().forEach((track) => track.stop());
       }
+      decodedFileRef.current = null;
+      purpleStreakRef.current = 0;
     };
   }, []);
 
