@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { decodeBits, createBlob, downloadBlob, detectSyncPreamble } from '@/app/lib/binaryEncoding';
+import { decodeBits, createBlob, downloadBlob, detectSyncPreamble, detectTerminator } from '@/app/lib/binaryEncoding';
 import styles from './receive.module.css';
 
 type ReceiverState = 'idle' | 'waiting' | 'syncing' | 'receiving' | 'complete' | 'error';
@@ -14,6 +14,7 @@ export default function ReceivePage() {
   const [error, setError] = useState('');
   const [receivedFile, setReceivedFile] = useState<{ name: string; size: number } | null>(null);
   const [bitsReceived, setBitsReceived] = useState(0);
+  const [countdown, setCountdown] = useState(3); // Countdown timer (3 seconds)
 
   // Blink detector state
   const [blinkDetected, setBlinkDetected] = useState(false);
@@ -23,6 +24,7 @@ export default function ReceivePage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number | undefined>(undefined);
+  const countdownTimerRef = useRef<NodeJS.Timeout | undefined>(undefined);
   const lastBrightnessRef = useRef<number[]>([128]); // Keep track of recent brightness values
   const darkIntervalRef = useRef(0); // Track how long the signal has been dark
   const lastFrameTimeRef = useRef(performance.now());
@@ -49,9 +51,26 @@ export default function ReceivePage() {
           videoRef.current?.play();
           stateRef.current = 'syncing';
           bitsRef.current = [];
+          setCountdown(3); // Start 3-second countdown
           setState('syncing');
-          setStatus('Waiting for sync preamble...');
-          startReception();
+          setStatus('READY IN: 3');
+          
+          // Countdown timer
+          let count = 3;
+          if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+          
+          countdownTimerRef.current = setInterval(() => {
+            count--;
+            if (count >= 0) {
+              setStatus(`READY IN: ${count}`);
+              setCountdown(count);
+            } else {
+              // Countdown complete, start reception
+              if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+              setStatus('Waiting for sync preamble...');
+              startReception();
+            }
+          }, 1000);
         };
       }
     } catch (err) {
@@ -128,7 +147,14 @@ export default function ReceivePage() {
         if (stateRef.current === 'receiving' && newBits.length >= 128 + 32 + 32) {
           const decoded = decodeBits(newBits);
           if (decoded.success && decoded.data) {
-            completeReception(decoded.data, newBits);
+            // File decoded successfully, now check for terminator signal
+            const terminatorStart = decoded.bitsReceived;
+            const bitsAfterFile = newBits.slice(terminatorStart);
+            
+            if (bitsAfterFile.length >= 16 && detectTerminator(bitsAfterFile)) {
+              console.log('[Receiver] Transmission terminator detected! Completing reception.');
+              completeReception(decoded.data, newBits);
+            }
           }
         }
 
@@ -227,6 +253,10 @@ export default function ReceivePage() {
    * Stop reception
    */
   const handleStop = () => {
+    if (countdownTimerRef.current) {
+      clearInterval(countdownTimerRef.current);
+    }
+    
     if (rafRef.current) {
       cancelAnimationFrame(rafRef.current);
     }
@@ -241,6 +271,7 @@ export default function ReceivePage() {
     setState('idle');
     setBits([]);
     setBitsReceived(0);
+    setCountdown(3);
     setStatus('Ready to receive');
     setReceivedFile(null);
   };
@@ -260,6 +291,9 @@ export default function ReceivePage() {
 
   useEffect(() => {
     return () => {
+      if (countdownTimerRef.current) {
+        clearInterval(countdownTimerRef.current);
+      }
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
       }
@@ -308,6 +342,12 @@ export default function ReceivePage() {
 
         {/* Status and controls */}
         <div className={styles.statusSection}>
+          {state === 'syncing' && countdown >= 0 && (
+            <div className={styles.countdown}>
+              READY IN: {countdown}
+            </div>
+          )}
+          
           <div className={styles.status}>{status}</div>
           <div className={styles.bitCount}>
             Received: {bitsReceived.toLocaleString()} bits

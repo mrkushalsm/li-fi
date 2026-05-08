@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { encodeFile, downloadBlob, getFilenameForDownload } from '@/app/lib/binaryEncoding';
+import { encodeFile, downloadBlob, getFilenameForDownload, generateTerminator } from '@/app/lib/binaryEncoding';
 import styles from './send.module.css';
 
 export default function SendPage() {
@@ -51,13 +51,17 @@ export default function SendPage() {
 
       // Encode the file to bits
       const result = await encodeFile(file);
-      setEncodedBits(result.bits);
-      setTotalBits(result.bits.length);
+      
+      // Append terminator signal (16 consecutive 1s) to signal end of transmission
+      const bitsWithTerminator = [...result.bits, ...generateTerminator()];
+      
+      setEncodedBits(bitsWithTerminator);
+      setTotalBits(bitsWithTerminator.length);
       setProgress(0);
       setCurrentBit(0);
 
       // Start the RAF transmission loop
-      startTransmission(result.bits);
+      startTransmission(bitsWithTerminator);
     } catch (err) {
       setError(`Encoding failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
       setIsTransmitting(false);

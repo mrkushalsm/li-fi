@@ -229,3 +229,24 @@ export function downloadBlob(blob: Blob, filename: string): void {
 export function getFilenameForDownload(originalName: string): string {
   return originalName || 'download.bin';
 }
+
+/**
+ * Detect transmission terminator (16 consecutive 1s after valid file data)
+ * Returns true if terminator pattern found, false otherwise
+ */
+export function detectTerminator(bits: boolean[]): boolean {
+  if (bits.length < 16) return false;
+  
+  // Look for 16 consecutive 1s at the end of a valid transmission
+  const terminatorPattern = new Array(16).fill(true);
+  const lastBits = bits.slice(-16);
+  
+  return lastBits.every((bit, idx) => bit === terminatorPattern[idx]);
+}
+
+/**
+ * Generate transmission terminator (16 consecutive 1s to signal end)
+ */
+export function generateTerminator(): boolean[] {
+  return new Array(16).fill(true);
+}
