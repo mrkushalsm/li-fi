@@ -21,6 +21,13 @@ export default function ReceivePage() {
   const [blinkMessage, setBlinkMessage] = useState('');
   const [toastVisible, setToastVisible] = useState(false);
 
+  // Debug display state
+  const [debugColor, setDebugColor] = useState('rgb(128, 128, 128)');
+  const [debugRgb, setDebugRgb] = useState('R:128 G:128 B:128');
+  const [debugPurpleDetected, setDebugPurpleDetected] = useState(false);
+  const [debugPurpleStreak, setDebugPurpleStreak] = useState(0);
+  const [debugShowPanel, setDebugShowPanel] = useState(true);
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number | undefined>(undefined);
@@ -116,9 +123,13 @@ export default function ReceivePage() {
 
         // Update display
         setDisplayBrightness(brightness);
+        setDebugRgb(`R:${color.red} G:${color.green} B:${color.blue}`);
+        setDebugColor(`rgb(${color.red}, ${color.green}, ${color.blue})`);
 
         if (stateRef.current === 'receiving' && fileDecodedRef.current && decodedFileRef.current && purpleFrame) {
+          setDebugPurpleDetected(true);
           purpleStreakRef.current += 1;
+          setDebugPurpleStreak(purpleStreakRef.current);
           console.log(`[Receiver] Purple frame detected! Streak: ${purpleStreakRef.current}/4`);
           setStatus('END SIGNAL DETECTED...');
 
@@ -131,6 +142,8 @@ export default function ReceivePage() {
           rafRef.current = requestAnimationFrame(receive);
           return;
         } else if (stateRef.current === 'receiving' && fileDecodedRef.current && decodedFileRef.current && !purpleFrame) {
+          setDebugPurpleDetected(false);
+          setDebugPurpleStreak(0);
           console.log(`[Receiver] Waiting for purple end marker. RGB: (${color.red}, ${color.green}, ${color.blue})`);
         }
 
@@ -369,6 +382,8 @@ export default function ReceivePage() {
       }
       decodedFileRef.current = null;
       purpleStreakRef.current = 0;
+      setDebugShowPanel(false);
+      setDebugPurpleStreak(0);
     };
   }, []);
 
@@ -397,15 +412,50 @@ export default function ReceivePage() {
 
         {/* Display brightness indicator */}
         {state !== 'idle' && (
-          <div className={styles.brightnessIndicator}>
-            <div
-              className={styles.brightnessBox}
-              style={{
-                backgroundColor: `rgb(${displayBrightness}, ${displayBrightness}, ${displayBrightness})`,
-              }}
-            />
-            <span>{displayBrightness}</span>
-          </div>
+            <>
+              <div className={styles.brightnessIndicator}>
+                <div
+                  className={styles.brightnessBox}
+                  style={{
+                    backgroundColor: `rgb(${displayBrightness}, ${displayBrightness}, ${displayBrightness})`,
+                  }}
+                />
+                <span>{displayBrightness}</span>
+              </div>
+              
+              {/* DEBUG PANEL - Real-time RGB and purple detection */}
+              {debugShowPanel && (
+                <div className={styles.debugPanel}>
+                  <div className={styles.debugHeader}>
+                    📊 DEBUG: Live RGB Sampling
+                    <button
+                      onClick={() => setDebugShowPanel(false)}
+                      className={styles.debugClose}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <div className={styles.debugContent}>
+                    <div className={styles.debugColorSwatch} style={{ backgroundColor: debugColor }} />
+                    <div className={styles.debugValues}>
+                      {debugRgb}
+                      <br />
+                      Purple Detected: {debugPurpleDetected ? '✓ YES' : '✗ NO'}
+                      <br />
+                      Purple Streak: {debugPurpleStreak}/4
+                    </div>
+                  </div>
+                </div>
+              )}
+              {!debugShowPanel && (
+                <button
+                  onClick={() => setDebugShowPanel(true)}
+                  className={styles.debugToggle}
+                >
+                  [Show Debug]
+                </button>
+              )}
+            </>
         )}
 
         {/* Status and controls */}
