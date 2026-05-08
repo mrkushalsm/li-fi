@@ -26,6 +26,8 @@ export default function ReceivePage() {
   const lastBrightnessRef = useRef<number[]>([128]); // Keep track of recent brightness values
   const darkIntervalRef = useRef(0); // Track how long the signal has been dark
   const lastFrameTimeRef = useRef(performance.now());
+  const stateRef = useRef<ReceiverState>('idle'); // Track state changes in RAF loop
+  const bitsRef = useRef<boolean[]>([]); // Track bits array in RAF loop
 
   /**
    * Initialize webcam
@@ -34,6 +36,7 @@ export default function ReceivePage() {
     try {
       setError('');
       setState('waiting');
+      stateRef.current = 'waiting';
       setStatus('Initializing webcam...');
 
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -44,6 +47,8 @@ export default function ReceivePage() {
         videoRef.current.srcObject = stream;
         videoRef.current.onloadedmetadata = () => {
           videoRef.current?.play();
+          stateRef.current = 'syncing';
+          bitsRef.current = [];
           setState('syncing');
           setStatus('Waiting for sync preamble...');
           startReception();
@@ -52,6 +57,7 @@ export default function ReceivePage() {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       setError(`Webcam access failed: ${message}`);
+      stateRef.current = 'error';
       setState('error');
       setStatus('Failed to access webcam');
     }
@@ -68,15 +74,22 @@ export default function ReceivePage() {
 
       if (elapsed >= frameInterval) {
         const brightness = samplePixelBrightness();
-        const bit = brightness > 200; // Threshold
+        const bit = brightness > 180; // Threshold (lowered from 200 for better detection)
 
         // Update display
         setDisplayBrightness(brightness);
 
-        // Add to bits
-        const newBits = [...bits, bit];
-        setBits(newBits);
+        // Add to bits using ref
+        bitsRef.current.push(bit);
+        const newBits = bitsRef.current;
+        setBits([...newBits]); // Update state for UI
         setBitsReceived(newBits.length);
+
+        // Debug: log recent bits every 50 bits
+        if (newBits.length % 50 === 0) {
+          const recentBits = newBits.slice(-16).map(b => b ? '1' : '0').join('');
+          console.log(`[Receiver] ${newBits.length} bits received. Last 16: ${recentBits}, Brightness: ${brightness}, State: ${stateRef.current}`);
+        }
 
         // Update brightness history
         lastBrightnessRef.current = [
@@ -85,16 +98,18 @@ export default function ReceivePage() {
         ];
 
         // Detect sync preamble
-        if (state === 'syncing' && newBits.length >= 128) {
+        if (stateRef.current === 'syncing' && newBits.length >= 128) {
           const syncIndex = detectSyncPreamble(newBits);
           if (syncIndex !== -1) {
+            console.log(`[Receiver] Sync preamble detected at index ${syncIndex}!`);
+            stateRef.current = 'receiving';
             setState('receiving');
             setStatus('Receiving data...');
           }
         }
 
         // Blink detection: look for long dark intervals inconsistent with data
-        if (state === 'receiving' && brightness < 100) {
+        if (stateRef.current === 'receiving' && brightness < 100) {
           darkIntervalRef.current += frameInterval;
 
           // A dark interval > 200ms that isn't a normal 0-bit sequence suggests a blink
@@ -110,7 +125,7 @@ export default function ReceivePage() {
         }
 
         // Try to decode
-        if (state === 'receiving' && newBits.length >= 128 + 32 + 32) {
+        if (stateRef.current === 'receiving' && newBits.length >= 128 + 32 + 32) {
           const decoded = decodeBits(newBits);
           if (decoded.success && decoded.data) {
             completeReception(decoded.data, newBits);
@@ -190,6 +205,7 @@ export default function ReceivePage() {
    * Complete reception
    */
   const completeReception = (data: Uint8Array, allBits: boolean[]) => {
+    stateRef.current = 'complete';
     setState('complete');
     setStatus('✓ Reception complete!');
     setReceivedFile({
@@ -220,6 +236,8 @@ export default function ReceivePage() {
       stream.getTracks().forEach((track) => track.stop());
     }
 
+    stateRef.current = 'idle';
+    bitsRef.current = [];
     setState('idle');
     setBits([]);
     setBitsReceived(0);
