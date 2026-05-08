@@ -84,8 +84,8 @@
 .countdown {
   font-size: 2.5rem;
   font-weight: bold;
-  color: #00ffff;
-  text-shadow: 0 0 20px rgba(0, 255, 255, 0.8);
+  color: #00ff00;
+  text-shadow: 0 0 20px rgba(0, 255, 0, 0.8);
   letter-spacing: 2px;
   margin-bottom: 20px;
   animation: countdownPulse 1s ease-in-out infinite;
