@@ -27,6 +27,7 @@ export default function ReceivePage() {
   const [debugPurpleDetected, setDebugPurpleDetected] = useState(false);
   const [debugPurpleStreak, setDebugPurpleStreak] = useState(0);
   const [debugShowPanel, setDebugShowPanel] = useState(true);
+  const [debugThresholds, setDebugThresholds] = useState('—');
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -46,11 +47,19 @@ export default function ReceivePage() {
   };
 
   const isPurpleEndFrame = (red: number, green: number, blue: number) => {
-    const isPurple = red >= 110 && blue >= 110 && green <= 170 && red + blue >= green * 2;
-    if (red > 100 && blue > 100) {
-      console.log(`[Receiver] Color sample RGB(${red}, ${green}, ${blue}) - isPurple: ${isPurple}`);
+    // Expected purple: RGB(179, 0, 255) = #b300ff
+    const check1 = red >= 110;
+    const check2 = blue >= 110;
+    const check3 = green <= 170;
+    const check4 = red + blue >= green * 2;
+    const isPurple = check1 && check2 && check3 && check4;
+
+    if (red > 50 || blue > 50) {
+      const checkStatus = `R≥110:${check1 ? '✓' : '✗'} B≥110:${check2 ? '✓' : '✗'} G≤170:${check3 ? '✓' : '✗'} R+B≥G*2:${check4 ? '✓' : '✗'}`;
+      console.log(`[RGB] R:${red} G:${green} B:${blue} → ${checkStatus}`);
+      return { isPurple, checkStatus };
     }
-    return isPurple;
+    return { isPurple, checkStatus: '—' };
   };
 
   /**
@@ -119,12 +128,14 @@ export default function ReceivePage() {
       if (elapsed >= frameInterval) {
         const color = samplePixelColor();
         const brightness = color.brightness;
-        const purpleFrame = isPurpleEndFrame(color.red, color.green, color.blue);
+        const purpleCheck = isPurpleEndFrame(color.red, color.green, color.blue);
+        const purpleFrame = purpleCheck.isPurple;
 
         // Update display
         setDisplayBrightness(brightness);
         setDebugRgb(`R:${color.red} G:${color.green} B:${color.blue}`);
         setDebugColor(`rgb(${color.red}, ${color.green}, ${color.blue})`);
+        setDebugThresholds(purpleCheck.checkStatus);
 
         if (stateRef.current === 'receiving' && fileDecodedRef.current && decodedFileRef.current && purpleFrame) {
           setDebugPurpleDetected(true);
@@ -443,6 +454,8 @@ export default function ReceivePage() {
                       Purple Detected: {debugPurpleDetected ? '✓ YES' : '✗ NO'}
                       <br />
                       Purple Streak: {debugPurpleStreak}/4
+                      <br />
+                      <span style={{ fontSize: '9px', color: '#00aa00' }}>{debugThresholds}</span>
                     </div>
                   </div>
                 </div>
