@@ -127,9 +127,16 @@ export default function ReceivePage() {
    */
   const startReception = () => {
     console.log('[startReception] Called! Starting RAF loop...');
+    lastFrameTimeRef.current = performance.now();
+    console.log(`[startReception] Initialized lastFrameTimeRef to ${lastFrameTimeRef.current}`);
     const frameInterval = 1000 / 30; // ~33.33ms per frame
+    let frameCount = 0;
 
     const receive = (currentTime: number) => {
+      frameCount++;
+      if (frameCount <= 5) {
+        console.log(`[RAF] Frame ${frameCount}: currentTime=${currentTime}, lastFrameTimeRef=${lastFrameTimeRef.current}, elapsed=${currentTime - lastFrameTimeRef.current}, frameInterval=${frameInterval}`);
+      }
       const elapsed = currentTime - lastFrameTimeRef.current;
 
       if (elapsed >= frameInterval) {
@@ -267,6 +274,10 @@ export default function ReceivePage() {
         }
 
         lastFrameTimeRef.current = currentTime;
+      } else {
+        if (frameCount <= 5) {
+          console.log(`[RAF] Frame ${frameCount}: SKIPPED (elapsed ${Math.round(elapsed)}ms < frameInterval ${Math.round(frameInterval)}ms)`);
+        }
       }
 
       rafRef.current = requestAnimationFrame(receive);
