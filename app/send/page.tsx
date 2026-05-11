@@ -59,6 +59,13 @@ export default function SendPage() {
       // Encode the file to bits
       const result = await encodeFile(file);
 
+      // Debug: verify sync preamble is correct
+      const first128 = result.bits.slice(0, 128);
+      const first20 = first128.slice(0, 20).map(b => b ? '1' : '0').join('');
+      console.log(`[Sender] Encoded bits.length=${result.bits.length}`);
+      console.log(`[Sender] First 128 bits: ${first128.map(b => b ? '1' : '0').join('')}`);
+      console.log(`[Sender] First 20 bits (should be 10101010101010101010): ${first20}`);
+
       const transmissionFrames: TransmissionFrame[] = [
         ...result.bits.map((bit) => ({
           kind: 'bit' as const,
