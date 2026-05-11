@@ -69,9 +69,11 @@ export default function ReceivePage() {
    */
   const initWebcam = async () => {
     try {
+      console.log('[initWebcam] Starting...');
       setError('');
       setState('waiting');
       stateRef.current = 'waiting';
+      console.log('[initWebcam] State set to waiting');
       setStatus('Initializing webcam...');
 
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -81,6 +83,7 @@ export default function ReceivePage() {
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         videoRef.current.onloadedmetadata = () => {
+          console.log('[onloadedmetadata] Video loaded. Setting state to syncing and starting countdown.');
           videoRef.current?.play();
           stateRef.current = 'syncing';
           bitsRef.current = [];
@@ -101,6 +104,7 @@ export default function ReceivePage() {
               setCountdown(count);
             } else {
               // Countdown complete, start reception
+              console.log('[countdown] Complete! Calling startReception()...');
               if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
               setCountdown(-1); // Hide countdown text
               setStatus('Waiting for sync preamble...');
@@ -122,6 +126,7 @@ export default function ReceivePage() {
    * RAF-based reception at 30fps
    */
   const startReception = () => {
+    console.log('[startReception] Called! Starting RAF loop...');
     const frameInterval = 1000 / 30; // ~33.33ms per frame
 
     const receive = (currentTime: number) => {
@@ -138,10 +143,10 @@ export default function ReceivePage() {
         setDebugRgb(`R:${color.red} G:${color.green} B:${color.blue}`);
         setDebugColor(`rgb(${color.red}, ${color.green}, ${color.blue})`);
         setDebugThresholds(purpleCheck.checkStatus);
+        setDebugState(stateRef.current); // Update state every frame, not just on purple
 
         // Log condition status when purple thresholds pass
         if (purpleFrame) {
-          setDebugState(stateRef.current);
           const condText = `state:${stateRef.current === 'receiving' ? '✓' : '✗'} decoded:${fileDecodedRef.current ? '✓' : '✗'} data:${decodedFileRef.current ? '✓' : '✗'}`;
           setDebugConditions(condText);
           console.log(`[Purple] thresholds OK. State='${stateRef.current}'. ${condText} streak=${purpleStreakRef.current}`);
@@ -217,6 +222,7 @@ export default function ReceivePage() {
           const syncIndex = detectSyncPreamble(newBits);
           if (syncIndex !== -1) {
             console.log(`[Receiver] Sync preamble detected at index ${syncIndex}!`);
+            console.log('[Receiver] Transitioning to receiving state...');
             stateRef.current = 'receiving';
             setState('receiving');
             setStatus('Receiving data...');
