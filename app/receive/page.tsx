@@ -220,8 +220,9 @@ export default function ReceivePage() {
         // Detect sync preamble
         if (stateRef.current === 'syncing' && newBits.length >= 128) {
           const syncIndex = detectSyncPreamble(newBits);
+          console.log(`[Sync] Checking: state=syncing, bits.length=${newBits.length}, syncIndex=${syncIndex}, first 20 bits: ${newBits.slice(0, 20).map(b => b ? '1' : '0').join('')}`);
           if (syncIndex !== -1) {
-            console.log(`[Receiver] Sync preamble detected at index ${syncIndex}!`);
+            console.log(`[Receiver] ✓ Sync preamble detected at index ${syncIndex}!`);
             console.log('[Receiver] Transitioning to receiving state...');
             stateRef.current = 'receiving';
             setState('receiving');
