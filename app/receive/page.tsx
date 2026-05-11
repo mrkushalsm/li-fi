@@ -205,6 +205,12 @@ export default function ReceivePage() {
         setBits([...newBits]); // Update state for UI
         setBitsReceived(newBits.length);
 
+        // Debug: log FIRST 20 BITS in detail
+        if (newBits.length <= 20) {
+          const whiteBool = isBinaryWhiteFrame(brightness, color.red, color.green, color.blue);
+          console.log(`[BitDetect] Frame ${newBits.length}: brightness=${brightness} (≥220? ${brightness >= 220}), RGB(${color.red},${color.green},${color.blue}), isWhite=${whiteBool}, bit=${bit ? '1' : '0'}`);
+        }
+
         // Debug: log recent bits every 50 bits
         if (newBits.length % 50 === 0) {
           const recentBits = newBits.slice(-16).map(b => b ? '1' : '0').join('');
