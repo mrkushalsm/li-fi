@@ -142,30 +142,44 @@ export default function ReceivePage() {
         if (purpleFrame) {
           const condText = `state:${stateRef.current === 'receiving' ? '✓' : '✗'} decoded:${fileDecodedRef.current ? '✓' : '✗'} data:${decodedFileRef.current ? '✓' : '✗'}`;
           setDebugConditions(condText);
-          if (stateRef.current === 'receiving' || fileDecodedRef.current || decodedFileRef.current) {
-            console.log(`[Purple] Thresholds OK but condition failed: ${condText}`);
-          }
+          console.log(`[Purple] thresholds OK. ${condText} streak=${purpleStreakRef.current}`);
         }
 
-        if (stateRef.current === 'receiving' && fileDecodedRef.current && decodedFileRef.current && purpleFrame) {
+        // Handle purple frames even if we haven't yet decoded the file. When a stable purple streak
+        // is observed, attempt to decode the accumulated bits and complete reception.
+        if (stateRef.current === 'receiving' && purpleFrame) {
           setDebugPurpleDetected(true);
           purpleStreakRef.current += 1;
           setDebugPurpleStreak(purpleStreakRef.current);
-          console.log(`[Receiver] Purple frame detected! Streak: ${purpleStreakRef.current}/4`);
           setStatus('END SIGNAL DETECTED...');
 
           if (purpleStreakRef.current >= 4) {
-            console.log('[Receiver] ✓ Purple end marker confirmed (4 frames). Completing reception.');
-            completeReception(decodedFileRef.current, bitsRef.current);
+            // If not decoded yet, try decoding now using the accumulated bits
+            if (!fileDecodedRef.current) {
+              const decoded = decodeBits(bitsRef.current);
+              if (decoded.success && decoded.data) {
+                fileDecodedRef.current = true;
+                decodedFileRef.current = decoded.data;
+                console.log(`[Receiver] File decoded at end-marker. Size: ${decoded.data.length} bytes.`);
+                setStatus('File decoded from buffer. Completing reception...');
+              } else {
+                console.log('[Receiver] End-marker reached but decode failed.', decoded.error ?? 'no details');
+                setStatus('End marker received but decode failed');
+              }
+            }
+
+            if (decodedFileRef.current) {
+              console.log('[Receiver] ✓ Purple end marker confirmed (4 frames). Completing reception.');
+              completeReception(decodedFileRef.current, bitsRef.current);
+            }
           }
 
           lastFrameTimeRef.current = currentTime;
           rafRef.current = requestAnimationFrame(receive);
           return;
-        } else if (stateRef.current === 'receiving' && fileDecodedRef.current && decodedFileRef.current && !purpleFrame) {
+        } else if (stateRef.current === 'receiving' && !purpleFrame) {
           setDebugPurpleDetected(false);
           setDebugPurpleStreak(0);
-          console.log(`[Receiver] Waiting for purple end marker. RGB: (${color.red}, ${color.green}, ${color.blue})`);
         }
 
         purpleStreakRef.current = 0;
