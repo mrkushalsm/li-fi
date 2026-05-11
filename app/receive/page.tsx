@@ -29,6 +29,7 @@ export default function ReceivePage() {
   const [debugShowPanel, setDebugShowPanel] = useState(true);
   const [debugThresholds, setDebugThresholds] = useState('—');
   const [debugConditions, setDebugConditions] = useState('—');
+  const [debugState, setDebugState] = useState('idle');
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -140,9 +141,10 @@ export default function ReceivePage() {
 
         // Log condition status when purple thresholds pass
         if (purpleFrame) {
+          setDebugState(stateRef.current);
           const condText = `state:${stateRef.current === 'receiving' ? '✓' : '✗'} decoded:${fileDecodedRef.current ? '✓' : '✗'} data:${decodedFileRef.current ? '✓' : '✗'}`;
           setDebugConditions(condText);
-          console.log(`[Purple] thresholds OK. ${condText} streak=${purpleStreakRef.current}`);
+          console.log(`[Purple] thresholds OK. State='${stateRef.current}'. ${condText} streak=${purpleStreakRef.current}`);
         }
 
         // Handle purple frames even if we haven't yet decoded the file. When a stable purple streak
@@ -478,6 +480,8 @@ export default function ReceivePage() {
                       Purple Detected: {debugPurpleDetected ? '✓ YES' : '✗ NO'}
                       <br />
                       Purple Streak: {debugPurpleStreak}/4
+                      <br />
+                      State: {debugState}
                       <br />
                       <span style={{ fontSize: '9px', color: '#00aa00' }}>{debugThresholds}</span>
                       <br />
