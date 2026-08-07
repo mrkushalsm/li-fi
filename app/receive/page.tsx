@@ -33,6 +33,8 @@ export default function ReceivePage() {
   const [debugStartMarkerStreak, setDebugStartMarkerStreak] = useState(0);
   const [debugEventLog, setDebugEventLog] = useState<string[]>([]);
   const [debugFramesSampled, setDebugFramesSampled] = useState(0);
+  const [debugBestPurpleSignal, setDebugBestPurpleSignal] = useState('none yet');
+  const bestPurpleSignalRef = useRef({ score: -Infinity, red: 0, green: 0, blue: 0 });
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -89,6 +91,8 @@ export default function ReceivePage() {
     try {
       setDebugEventLog([]);
       setDebugFramesSampled(0);
+      setDebugBestPurpleSignal('none yet');
+      bestPurpleSignalRef.current = { score: -Infinity, red: 0, green: 0, blue: 0 };
       logEvent('initWebcam: starting...');
       setError('');
       setState('waiting');
@@ -174,6 +178,15 @@ export default function ReceivePage() {
       setDebugColor(`rgb(${color.red}, ${color.green}, ${color.blue})`);
       setDebugThresholds(purpleCheck.checkStatus);
       setDebugState(stateRef.current); // Update state every frame, not just on purple
+
+      // Track the closest-to-purple reading ever seen (by blue-green separation), so we can
+      // calibrate thresholds against what this real camera/lighting setup actually produces
+      // instead of guessing at the nominal #b300ff value.
+      const purpleScore = color.blue - color.green;
+      if (purpleScore > bestPurpleSignalRef.current.score) {
+        bestPurpleSignalRef.current = { score: purpleScore, red: color.red, green: color.green, blue: color.blue };
+        setDebugBestPurpleSignal(`R:${color.red} G:${color.green} B:${color.blue} (B-G=${purpleScore}, R-G=${color.red - color.green})`);
+      }
 
       // Log condition status when purple thresholds pass
       if (purpleFrame) {
@@ -574,6 +587,8 @@ export default function ReceivePage() {
                       <span style={{ fontSize: '9px', color: '#00aa00' }}>{debugThresholds}</span>
                       <br />
                       <span style={{ fontSize: '9px', color: '#ffaa00' }}>Conditions: {debugConditions}</span>
+                      <br />
+                      <span style={{ fontSize: '9px', color: '#00ffff' }}>Best purple signal: {debugBestPurpleSignal}</span>
                     </div>
                   </div>
                   <div className={styles.debugLog}>
