@@ -501,6 +501,12 @@ export default function ReceivePage() {
               <p>📹 Ready to receive</p>
             </div>
           )}
+
+          {state !== 'idle' && (
+            <div className={styles.sampleTarget}>
+              <span className={styles.sampleTargetLabel}>aim here</span>
+            </div>
+          )}
         </div>
 
         <canvas ref={canvasRef} style={{ display: 'none' }} />

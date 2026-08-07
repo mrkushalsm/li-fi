@@ -47,6 +47,53 @@
   object-fit: cover;
 }
 
+.sampleTarget {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 15%;
+  aspect-ratio: 1 / 1;
+  border: 2px solid #00ff00;
+  box-shadow: 0 0 10px rgba(0, 255, 0, 0.8);
+  pointer-events: none;
+}
+
+.sampleTarget::before,
+.sampleTarget::after {
+  content: '';
+  position: absolute;
+  background: #00ff00;
+  box-shadow: 0 0 6px rgba(0, 255, 0, 0.8);
+}
+
+.sampleTarget::before {
+  top: 50%;
+  left: -10px;
+  right: -10px;
+  height: 1px;
+  transform: translateY(-50%);
+}
+
+.sampleTarget::after {
+  left: 50%;
+  top: -10px;
+  bottom: -10px;
+  width: 1px;
+  transform: translateX(-50%);
+}
+
+.sampleTargetLabel {
+  position: absolute;
+  bottom: -22px;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 10px;
+  color: #00ff00;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.9);
+}
+
 .placeholder {
   text-align: center;
   color: #00aa00;
