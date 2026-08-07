@@ -32,6 +32,7 @@ export default function ReceivePage() {
   const [debugState, setDebugState] = useState('idle');
   const [debugStartMarkerStreak, setDebugStartMarkerStreak] = useState(0);
   const [debugEventLog, setDebugEventLog] = useState<string[]>([]);
+  const [debugFramesSampled, setDebugFramesSampled] = useState(0);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -87,6 +88,7 @@ export default function ReceivePage() {
   const initWebcam = async () => {
     try {
       setDebugEventLog([]);
+      setDebugFramesSampled(0);
       logEvent('initWebcam: starting...');
       setError('');
       setState('waiting');
@@ -100,9 +102,12 @@ export default function ReceivePage() {
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        videoRef.current.muted = true; // required by some mobile browsers before play() is allowed
         videoRef.current.onloadedmetadata = () => {
-          console.log('[onloadedmetadata] Video loaded. Setting state to syncing and starting countdown.');
-          videoRef.current?.play();
+          logEvent('onloadedmetadata: video loaded, starting playback + countdown');
+          videoRef.current?.play()
+            .then(() => logEvent('video.play() resolved — playback confirmed running'))
+            .catch((err) => logEvent(`video.play() REJECTED: ${err instanceof Error ? err.message : String(err)}`));
           stateRef.current = 'syncing';
           bitsRef.current = [];
           fileDecodedRef.current = false;
@@ -151,10 +156,13 @@ export default function ReceivePage() {
    * browsers that don't support requestVideoFrameCallback.
    */
   const startReception = () => {
-    console.log('[startReception] Called! Starting frame-locked capture...');
+    logEvent('startReception: starting frame-locked capture...');
     const frameInterval = 1000 / 30; // used for blink-interval accounting and fallback pacing
+    let framesSampled = 0;
 
     const processFrame = () => {
+      framesSampled += 1;
+      setDebugFramesSampled(framesSampled);
       const color = samplePixelColor();
       const brightness = color.brightness;
       const purpleCheck = isPurpleEndFrame(color.red, color.green, color.blue);
@@ -551,6 +559,8 @@ export default function ReceivePage() {
                   <div className={styles.debugContent}>
                     <div className={styles.debugColorSwatch} style={{ backgroundColor: debugColor }} />
                     <div className={styles.debugValues}>
+                      Frames sampled: {debugFramesSampled}
+                      <br />
                       {debugRgb}
                       <br />
                       Purple Detected: {debugPurpleDetected ? '✓ YES' : '✗ NO'}
