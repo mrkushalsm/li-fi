@@ -31,6 +31,7 @@ export default function ReceivePage() {
   const [debugConditions, setDebugConditions] = useState('—');
   const [debugState, setDebugState] = useState('idle');
   const [debugStartMarkerStreak, setDebugStartMarkerStreak] = useState(0);
+  const [debugEventLog, setDebugEventLog] = useState<string[]>([]);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -47,20 +48,33 @@ export default function ReceivePage() {
   const startMarkerStreakRef = useRef(0); // Count consecutive purple frames (start marker)
   const startMarkerConfirmedRef = useRef(false); // True once start marker streak has locked in
 
+  /**
+   * Append a timestamped event to the on-screen debug log (visible on-device without
+   * a remote console — the last N transitions/decisions, not just the current frame).
+   */
+  const logEvent = (message: string) => {
+    console.log(`[Receiver] ${message}`);
+    const line = `${new Date().toLocaleTimeString(undefined, { hour12: false })} ${message}`;
+    setDebugEventLog((prev) => [...prev.slice(-19), line]);
+  };
+
   const isBinaryWhiteFrame = (brightness: number, red: number, green: number, blue: number) => {
     return brightness >= 220 && red >= 200 && green >= 200 && blue >= 200;
   };
 
   const isPurpleEndFrame = (red: number, green: number, blue: number) => {
-    // Expected purple: RGB(179, 0, 255) = #b300ff
-    const check1 = red >= 110;
-    const check2 = blue >= 110;
-    const check3 = green <= 170;
-    const check4 = red + blue >= green * 2;
+    // Expected purple: RGB(179, 0, 255) = #b300ff. Real neutral/gray tones (background
+    // clutter, browser chrome, camera noise) can have R and B both moderately high, so a
+    // reliable check needs to key off how far B and R stand *above* G, not just their
+    // absolute values — plain grays have R ≈ G ≈ B and would otherwise slip through.
+    const check1 = blue >= 150;
+    const check2 = green <= 100;
+    const check3 = blue - green >= 90;
+    const check4 = red - green >= 20;
     const isPurple = check1 && check2 && check3 && check4;
 
     if (red > 50 || blue > 50) {
-      const checkStatus = `R≥110:${check1 ? '✓' : '✗'} B≥110:${check2 ? '✓' : '✗'} G≤170:${check3 ? '✓' : '✗'} R+B≥G*2:${check4 ? '✓' : '✗'}`;
+      const checkStatus = `B≥150:${check1 ? '✓' : '✗'} G≤100:${check2 ? '✓' : '✗'} B-G≥90:${check3 ? '✓' : '✗'} R-G≥20:${check4 ? '✓' : '✗'}`;
       console.log(`[RGB] R:${red} G:${green} B:${blue} → ${checkStatus}`);
       return { isPurple, checkStatus };
     }
@@ -72,7 +86,8 @@ export default function ReceivePage() {
    */
   const initWebcam = async () => {
     try {
-      console.log('[initWebcam] Starting...');
+      setDebugEventLog([]);
+      logEvent('initWebcam: starting...');
       setError('');
       setState('waiting');
       stateRef.current = 'waiting';
@@ -166,7 +181,7 @@ export default function ReceivePage() {
           setDebugStartMarkerStreak(startMarkerStreakRef.current);
           if (startMarkerStreakRef.current >= 4 && !startMarkerConfirmedRef.current) {
             startMarkerConfirmedRef.current = true;
-            console.log('[Receiver] ✓ Start marker locked (4 purple frames). Waiting for data to begin...');
+            logEvent(`✓ Start marker locked at RGB(${color.red},${color.green},${color.blue})`);
             setStatus('Start marker locked. Waiting for data...');
           }
           return;
@@ -180,7 +195,7 @@ export default function ReceivePage() {
         }
 
         // Marker was locked and this frame dropped out of purple — this is the first data bit.
-        console.log('[Receiver] Start marker ended. Transitioning to receiving state...');
+        logEvent(`Start marker ended → receiving (RGB(${color.red},${color.green},${color.blue}) not purple)`);
         stateRef.current = 'receiving';
         setState('receiving');
         setStatus('Receiving data...');
@@ -207,16 +222,16 @@ export default function ReceivePage() {
             if (decoded.success && decoded.data) {
               fileDecodedRef.current = true;
               decodedFileRef.current = decoded.data;
-              console.log(`[Receiver] File decoded at end-marker. Size: ${decoded.data.length} bytes.`);
+              logEvent(`File decoded at end-marker. Size: ${decoded.data.length} bytes.`);
               setStatus('File decoded from buffer. Completing reception...');
             } else {
-              console.log('[Receiver] End-marker reached but decode failed.', decoded.error ?? 'no details');
+              logEvent(`Decode failed: ${decoded.error ?? 'unknown'} (${bitsRef.current.length} bits buffered)`);
               setStatus(`Decode failed: ${decoded.error ?? 'unknown error'} (${bitsRef.current.length} bits buffered)`);
             }
           }
 
           if (decodedFileRef.current) {
-            console.log('[Receiver] ✓ Purple end marker confirmed (4 frames). Completing reception.');
+            logEvent('✓ Purple end marker confirmed (4 frames). Completing reception.');
             completeReception(decodedFileRef.current, bitsRef.current);
           }
         }
@@ -280,7 +295,7 @@ export default function ReceivePage() {
         if (decoded.success && decoded.data) {
           fileDecodedRef.current = true;
           decodedFileRef.current = decoded.data;
-          console.log(`[Receiver] File decoded! Size: ${decoded.data.length} bytes. Waiting for purple end marker...`);
+          logEvent(`File decoded! Size: ${decoded.data.length} bytes. Waiting for purple end marker...`);
           setStatus('File received. Waiting for purple end signal...');
         }
       }
@@ -550,6 +565,15 @@ export default function ReceivePage() {
                       <br />
                       <span style={{ fontSize: '9px', color: '#ffaa00' }}>Conditions: {debugConditions}</span>
                     </div>
+                  </div>
+                  <div className={styles.debugLog}>
+                    {debugEventLog.length === 0 ? (
+                      <div className={styles.debugLogLine}>No events yet.</div>
+                    ) : (
+                      [...debugEventLog].reverse().map((line, i) => (
+                        <div key={i} className={styles.debugLogLine}>{line}</div>
+                      ))
+                    )}
                   </div>
                 </div>
               )}

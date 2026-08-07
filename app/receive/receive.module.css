@@ -333,6 +333,23 @@
   font-size: 11px;
 }
 
+.debugLog {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #00aa00;
+  max-height: 160px;
+  overflow-y: auto;
+  text-align: left;
+}
+
+.debugLogLine {
+  font-size: 10px;
+  line-height: 1.5;
+  color: #00cc00;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .debugToggle {
   margin-top: 8px;
   padding: 6px 12px;
