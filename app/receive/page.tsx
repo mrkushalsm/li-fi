@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { decodeBits, createBlob, downloadBlob } from '@/app/lib/binaryEncoding';
+import { decodeBits, createBlob, downloadBlob, WARMUP_FRAMES } from '@/app/lib/binaryEncoding';
 import styles from './receive.module.css';
 
 type ReceiverState = 'idle' | 'waiting' | 'syncing' | 'receiving' | 'complete' | 'error';
@@ -50,6 +50,7 @@ export default function ReceivePage() {
   const purpleStreakRef = useRef(0); // Count consecutive purple frames (end marker)
   const startMarkerStreakRef = useRef(0); // Count consecutive purple frames (start marker)
   const startMarkerConfirmedRef = useRef(false); // True once start marker streak has locked in
+  const warmupFramesRemainingRef = useRef(0); // Throwaway frames left to skip after marker ends, letting camera exposure settle
 
   /**
    * Append a timestamped event to the on-screen debug log (visible on-device without
@@ -119,6 +120,7 @@ export default function ReceivePage() {
           purpleStreakRef.current = 0;
           startMarkerStreakRef.current = 0;
           startMarkerConfirmedRef.current = false;
+          warmupFramesRemainingRef.current = 0;
           setCountdown(3); // Start 3-second countdown
           setState('syncing');
           setStatus('Prepare camera');
@@ -215,7 +217,9 @@ export default function ReceivePage() {
           return;
         }
 
-        // Marker was locked and this frame dropped out of purple — this is the first data bit.
+        // Marker was locked and this frame dropped out of purple — start of the warm-up
+        // period (throwaway frames giving the camera's exposure time to settle before the
+        // real header arrives).
         logEvent(`Start marker ended → receiving (RGB(${color.red},${color.green},${color.blue}) not purple)`);
         stateRef.current = 'receiving';
         setState('receiving');
@@ -224,8 +228,9 @@ export default function ReceivePage() {
         purpleStreakRef.current = 0;
         startMarkerStreakRef.current = 0;
         startMarkerConfirmedRef.current = false;
+        warmupFramesRemainingRef.current = WARMUP_FRAMES;
         setDebugStartMarkerStreak(0);
-        // Fall through to bit accumulation below so this frame isn't lost.
+        // Fall through so this frame is consumed as the first warm-up frame below.
       }
 
       // Handle purple frames even if we haven't yet decoded the file. When a stable purple streak
@@ -266,6 +271,14 @@ export default function ReceivePage() {
       purpleStreakRef.current = 0;
 
       if (fileDecodedRef.current || stateRef.current !== 'receiving') {
+        return;
+      }
+
+      if (warmupFramesRemainingRef.current > 0) {
+        warmupFramesRemainingRef.current -= 1;
+        if (warmupFramesRemainingRef.current === 0) {
+          logEvent('Warm-up complete — recording real header/data from next frame.');
+        }
         return;
       }
 
@@ -474,6 +487,7 @@ export default function ReceivePage() {
     purpleStreakRef.current = 0;
     startMarkerStreakRef.current = 0;
     startMarkerConfirmedRef.current = false;
+    warmupFramesRemainingRef.current = 0;
     setState('idle');
     setBits([]);
     setBitsReceived(0);
@@ -510,6 +524,7 @@ export default function ReceivePage() {
       purpleStreakRef.current = 0;
       startMarkerStreakRef.current = 0;
       startMarkerConfirmedRef.current = false;
+      warmupFramesRemainingRef.current = 0;
       setDebugShowPanel(false);
       setDebugPurpleStreak(0);
     };

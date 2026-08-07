@@ -5,6 +5,13 @@
 
 const MAGIC_SYNC = 0xdeadbeef; // 32-bit magic sync
 
+// Frames of throwaway alternating black/white sent right after the purple start marker,
+// before the real header. Right as the screen jumps from the (dark) purple marker to
+// bright white, the camera's auto-exposure hasn't caught up yet, so genuine white frames
+// can misread as dim for the first several frames. This lets the exposure settle on
+// throwaway data instead of on the magic header, which would corrupt the whole decode.
+export const WARMUP_FRAMES = 15;
+
 export interface EncodeResult {
   bits: boolean[];
   originalLength: number;

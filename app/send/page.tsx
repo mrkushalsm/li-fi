@@ -1,11 +1,12 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { encodeFile, downloadBlob, getFilenameForDownload } from '@/app/lib/binaryEncoding';
+import { encodeFile, downloadBlob, getFilenameForDownload, WARMUP_FRAMES } from '@/app/lib/binaryEncoding';
 import styles from './send.module.css';
 
 type TransmissionFrame =
   | { kind: 'start'; color: string }
+  | { kind: 'warmup'; color: string }
   | { kind: 'bit'; color: string }
   | { kind: 'end'; color: string };
 
@@ -68,6 +69,10 @@ export default function SendPage() {
           kind: 'start' as const,
           color: MARKER_COLOR,
         })),
+        ...Array.from({ length: WARMUP_FRAMES }, (_, i) => ({
+          kind: 'warmup' as const,
+          color: i % 2 === 0 ? '#FFFFFF' : '#000000',
+        })),
         ...result.bits.map((bit) => ({
           kind: 'bit' as const,
           color: bit ? '#FFFFFF' : '#000000',
@@ -108,11 +113,11 @@ export default function SendPage() {
             containerRef.current.style.backgroundColor = frame.color;
           }
 
-          if (frame.kind === 'start') {
+          if (frame.kind === 'start' || frame.kind === 'warmup') {
             setCurrentBit(0);
             setProgress(0);
           } else if (frame.kind === 'bit') {
-            const payloadIndex = bitIndexRef.current - START_MARKER_FRAMES;
+            const payloadIndex = bitIndexRef.current - START_MARKER_FRAMES - WARMUP_FRAMES;
             setCurrentBit(payloadIndex);
             setProgress((payloadIndex / payloadBitCount) * 100);
           } else {
