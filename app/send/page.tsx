@@ -5,11 +5,13 @@ import { encodeFile, downloadBlob, getFilenameForDownload } from '@/app/lib/bina
 import styles from './send.module.css';
 
 type TransmissionFrame =
+  | { kind: 'start'; color: string }
   | { kind: 'bit'; color: string }
   | { kind: 'end'; color: string };
 
+const START_MARKER_FRAMES = 30;
 const END_MARKER_FRAMES = 30;
-const END_MARKER_COLOR = '#b300ff';
+const MARKER_COLOR = '#b300ff';
 
 export default function SendPage() {
   const [file, setFile] = useState<File | null>(null);
@@ -59,21 +61,20 @@ export default function SendPage() {
       // Encode the file to bits
       const result = await encodeFile(file);
 
-      // Debug: verify sync preamble is correct
-      const first128 = result.bits.slice(0, 128);
-      const first20 = first128.slice(0, 20).map(b => b ? '1' : '0').join('');
       console.log(`[Sender] Encoded bits.length=${result.bits.length}`);
-      console.log(`[Sender] First 128 bits: ${first128.map(b => b ? '1' : '0').join('')}`);
-      console.log(`[Sender] First 20 bits (should be 10101010101010101010): ${first20}`);
 
       const transmissionFrames: TransmissionFrame[] = [
+        ...Array.from({ length: START_MARKER_FRAMES }, () => ({
+          kind: 'start' as const,
+          color: MARKER_COLOR,
+        })),
         ...result.bits.map((bit) => ({
           kind: 'bit' as const,
           color: bit ? '#FFFFFF' : '#000000',
         })),
         ...Array.from({ length: END_MARKER_FRAMES }, () => ({
           kind: 'end' as const,
-          color: END_MARKER_COLOR,
+          color: MARKER_COLOR,
         })),
       ];
 
@@ -107,15 +108,16 @@ export default function SendPage() {
             containerRef.current.style.backgroundColor = frame.color;
           }
 
-          if (frame.kind === 'bit') {
-            setCurrentBit(bitIndexRef.current);
-            setProgress((bitIndexRef.current / payloadBitCount) * 100);
+          if (frame.kind === 'start') {
+            setCurrentBit(0);
+            setProgress(0);
+          } else if (frame.kind === 'bit') {
+            const payloadIndex = bitIndexRef.current - START_MARKER_FRAMES;
+            setCurrentBit(payloadIndex);
+            setProgress((payloadIndex / payloadBitCount) * 100);
           } else {
             setCurrentBit(payloadBitCount);
             setProgress(100);
-            if (bitIndexRef.current === payloadBitCount) {
-              console.log(`[Sender] Starting purple end marker phase at frame ${bitIndexRef.current}. Color: ${frame.color}`);
-            }
           }
 
           bitIndexRef.current++;

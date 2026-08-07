@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { decodeBits, createBlob, downloadBlob, detectSyncPreamble } from '@/app/lib/binaryEncoding';
+import { decodeBits, createBlob, downloadBlob } from '@/app/lib/binaryEncoding';
 import styles from './receive.module.css';
 
 type ReceiverState = 'idle' | 'waiting' | 'syncing' | 'receiving' | 'complete' | 'error';
@@ -30,6 +30,7 @@ export default function ReceivePage() {
   const [debugThresholds, setDebugThresholds] = useState('—');
   const [debugConditions, setDebugConditions] = useState('—');
   const [debugState, setDebugState] = useState('idle');
+  const [debugStartMarkerStreak, setDebugStartMarkerStreak] = useState(0);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -42,7 +43,9 @@ export default function ReceivePage() {
   const bitsRef = useRef<boolean[]>([]); // Track bits array in RAF loop
   const fileDecodedRef = useRef(false); // Track if we've already decoded a file
   const decodedFileRef = useRef<Uint8Array | null>(null); // Cache decoded payload until the purple end marker arrives
-  const purpleStreakRef = useRef(0); // Count consecutive purple frames
+  const purpleStreakRef = useRef(0); // Count consecutive purple frames (end marker)
+  const startMarkerStreakRef = useRef(0); // Count consecutive purple frames (start marker)
+  const startMarkerConfirmedRef = useRef(false); // True once start marker streak has locked in
 
   const isBinaryWhiteFrame = (brightness: number, red: number, green: number, blue: number) => {
     return brightness >= 220 && red >= 200 && green >= 200 && blue >= 200;
@@ -90,6 +93,8 @@ export default function ReceivePage() {
           fileDecodedRef.current = false;
           decodedFileRef.current = null;
           purpleStreakRef.current = 0;
+          startMarkerStreakRef.current = 0;
+          startMarkerConfirmedRef.current = false;
           setCountdown(3); // Start 3-second countdown
           setState('syncing');
           setStatus('Prepare camera');
@@ -107,7 +112,7 @@ export default function ReceivePage() {
               console.log('[countdown] Complete! Calling startReception()...');
               if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
               setCountdown(-1); // Hide countdown text
-              setStatus('Waiting for sync preamble...');
+              setStatus('Waiting for start marker...');
               startReception();
             }
           }, 1000);
@@ -159,6 +164,43 @@ export default function ReceivePage() {
           console.log(`[Purple] thresholds OK. State='${stateRef.current}'. ${condText} streak=${purpleStreakRef.current}`);
         }
 
+        // --- SYNCING: waiting for the purple start marker before we accept any data bits ---
+        if (stateRef.current === 'syncing') {
+          if (purpleFrame) {
+            startMarkerStreakRef.current += 1;
+            setDebugStartMarkerStreak(startMarkerStreakRef.current);
+            if (startMarkerStreakRef.current >= 4 && !startMarkerConfirmedRef.current) {
+              startMarkerConfirmedRef.current = true;
+              console.log('[Receiver] ✓ Start marker locked (4 purple frames). Waiting for data to begin...');
+              setStatus('Start marker locked. Waiting for data...');
+            }
+            lastFrameTimeRef.current = currentTime;
+            rafRef.current = requestAnimationFrame(receive);
+            return;
+          }
+
+          if (!startMarkerConfirmedRef.current) {
+            // Not purple and we haven't locked the marker yet — still noise, keep waiting.
+            startMarkerStreakRef.current = 0;
+            setDebugStartMarkerStreak(0);
+            lastFrameTimeRef.current = currentTime;
+            rafRef.current = requestAnimationFrame(receive);
+            return;
+          }
+
+          // Marker was locked and this frame dropped out of purple — this is the first data bit.
+          console.log('[Receiver] Start marker ended. Transitioning to receiving state...');
+          stateRef.current = 'receiving';
+          setState('receiving');
+          setStatus('Receiving data...');
+          bitsRef.current = [];
+          purpleStreakRef.current = 0;
+          startMarkerStreakRef.current = 0;
+          startMarkerConfirmedRef.current = false;
+          setDebugStartMarkerStreak(0);
+          // Fall through to bit accumulation below so this frame isn't lost.
+        }
+
         // Handle purple frames even if we haven't yet decoded the file. When a stable purple streak
         // is observed, attempt to decode the accumulated bits and complete reception.
         if (stateRef.current === 'receiving' && purpleFrame) {
@@ -198,7 +240,7 @@ export default function ReceivePage() {
 
         purpleStreakRef.current = 0;
 
-        if (fileDecodedRef.current) {
+        if (fileDecodedRef.current || stateRef.current !== 'receiving') {
           lastFrameTimeRef.current = currentTime;
           rafRef.current = requestAnimationFrame(receive);
           return;
@@ -230,19 +272,6 @@ export default function ReceivePage() {
           brightness,
         ];
 
-        // Detect sync preamble
-        if (stateRef.current === 'syncing' && newBits.length >= 128) {
-          const syncIndex = detectSyncPreamble(newBits);
-          console.log(`[Sync] Checking: state=syncing, bits.length=${newBits.length}, syncIndex=${syncIndex}, first 20 bits: ${newBits.slice(0, 20).map(b => b ? '1' : '0').join('')}`);
-          if (syncIndex !== -1) {
-            console.log(`[Receiver] ✓ Sync preamble detected at index ${syncIndex}!`);
-            console.log('[Receiver] Transitioning to receiving state...');
-            stateRef.current = 'receiving';
-            setState('receiving');
-            setStatus('Receiving data...');
-          }
-        }
-
         // Blink detection: look for long dark intervals inconsistent with data
         if (stateRef.current === 'receiving' && brightness < 100) {
           darkIntervalRef.current += frameInterval;
@@ -259,8 +288,8 @@ export default function ReceivePage() {
           darkIntervalRef.current = 0;
         }
 
-        // Try to decode
-        if (stateRef.current === 'receiving' && newBits.length >= 128 + 32 + 32) {
+        // Try to decode (need at least magic + length = 64 bits before a decode attempt makes sense)
+        if (stateRef.current === 'receiving' && newBits.length >= 64) {
           // Only decode if we haven't already successfully decoded
           if (!fileDecodedRef.current) {
             const decoded = decodeBits(newBits);
@@ -408,10 +437,13 @@ export default function ReceivePage() {
     fileDecodedRef.current = false;
     decodedFileRef.current = null;
     purpleStreakRef.current = 0;
+    startMarkerStreakRef.current = 0;
+    startMarkerConfirmedRef.current = false;
     setState('idle');
     setBits([]);
     setBitsReceived(0);
     setCountdown(3);
+    setDebugStartMarkerStreak(0);
     setStatus('Ready to receive');
     setReceivedFile(null);
   };
@@ -443,6 +475,8 @@ export default function ReceivePage() {
       }
       decodedFileRef.current = null;
       purpleStreakRef.current = 0;
+      startMarkerStreakRef.current = 0;
+      startMarkerConfirmedRef.current = false;
       setDebugShowPanel(false);
       setDebugPurpleStreak(0);
     };
@@ -504,6 +538,8 @@ export default function ReceivePage() {
                       Purple Detected: {debugPurpleDetected ? '✓ YES' : '✗ NO'}
                       <br />
                       Purple Streak: {debugPurpleStreak}/4
+                      <br />
+                      Start Marker Streak: {debugStartMarkerStreak}/4
                       <br />
                       State: {debugState}
                       <br />
