@@ -66,18 +66,18 @@ export default function ReceivePage() {
   };
 
   const isPurpleEndFrame = (red: number, green: number, blue: number) => {
-    // Expected purple: RGB(179, 0, 255) = #b300ff. Real neutral/gray tones (background
-    // clutter, browser chrome, camera noise) can have R and B both moderately high, so a
-    // reliable check needs to key off how far B and R stand *above* G, not just their
-    // absolute values — plain grays have R ≈ G ≈ B and would otherwise slip through.
+    // Expected purple: RGB(179, 0, 255) = #b300ff, but this camera's color rendering
+    // compresses red significantly (observed real capture: R:105 G:92 B:214 — R-G only
+    // 13). The reliable signal is how far B stands above G — every neutral/gray reading
+    // observed in testing (background clutter, browser chrome, camera noise) stayed under
+    // B-G≈20, while real purple hit 122, so that gap alone is what to key off.
     const check1 = blue >= 150;
     const check2 = green <= 100;
-    const check3 = blue - green >= 90;
-    const check4 = red - green >= 20;
-    const isPurple = check1 && check2 && check3 && check4;
+    const check3 = blue - green >= 60;
+    const isPurple = check1 && check2 && check3;
 
     if (red > 50 || blue > 50) {
-      const checkStatus = `B≥150:${check1 ? '✓' : '✗'} G≤100:${check2 ? '✓' : '✗'} B-G≥90:${check3 ? '✓' : '✗'} R-G≥20:${check4 ? '✓' : '✗'}`;
+      const checkStatus = `B≥150:${check1 ? '✓' : '✗'} G≤100:${check2 ? '✓' : '✗'} B-G≥60:${check3 ? '✓' : '✗'}`;
       console.log(`[RGB] R:${red} G:${green} B:${blue} → ${checkStatus}`);
       return { isPurple, checkStatus };
     }
