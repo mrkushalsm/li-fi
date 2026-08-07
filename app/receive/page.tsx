@@ -220,7 +220,7 @@ export default function ReceivePage() {
                 setStatus('File decoded from buffer. Completing reception...');
               } else {
                 console.log('[Receiver] End-marker reached but decode failed.', decoded.error ?? 'no details');
-                setStatus('End marker received but decode failed');
+                setStatus(`Decode failed: ${decoded.error ?? 'unknown error'} (${bitsRef.current.length} bits buffered)`);
               }
             }
 
