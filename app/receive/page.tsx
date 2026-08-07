@@ -34,11 +34,11 @@ export default function ReceivePage() {
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const rafRef = useRef<number | undefined>(undefined);
+  const videoFrameHandleRef = useRef<number | undefined>(undefined);
+  const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const countdownTimerRef = useRef<NodeJS.Timeout | undefined>(undefined);
   const lastBrightnessRef = useRef<number[]>([128]); // Keep track of recent brightness values
   const darkIntervalRef = useRef(0); // Track how long the signal has been dark
-  const lastFrameTimeRef = useRef(performance.now());
   const stateRef = useRef<ReceiverState>('idle'); // Track state changes in RAF loop
   const bitsRef = useRef<boolean[]>([]); // Track bits array in RAF loop
   const fileDecodedRef = useRef(false); // Track if we've already decoded a file
@@ -128,191 +128,195 @@ export default function ReceivePage() {
   };
 
   /**
-   * RAF-based reception at 30fps
+   * Reception loop — samples exactly once per genuinely new camera frame via
+   * requestVideoFrameCallback, instead of polling on a fixed timer. Polling on a
+   * fixed 33ms timer against requestAnimationFrame let the sampler run out of step
+   * with when the camera actually delivered a new frame, causing duplicate/skipped
+   * bit samples and scrambling the bitstream. Falls back to a 30fps timer on
+   * browsers that don't support requestVideoFrameCallback.
    */
   const startReception = () => {
-    console.log('[startReception] Called! Starting RAF loop...');
-    lastFrameTimeRef.current = performance.now();
-    console.log(`[startReception] Initialized lastFrameTimeRef to ${lastFrameTimeRef.current}`);
-    const frameInterval = 1000 / 30; // ~33.33ms per frame
-    let frameCount = 0;
+    console.log('[startReception] Called! Starting frame-locked capture...');
+    const frameInterval = 1000 / 30; // used for blink-interval accounting and fallback pacing
 
-    const receive = (currentTime: number) => {
-      frameCount++;
-      if (frameCount <= 5) {
-        console.log(`[RAF] Frame ${frameCount}: currentTime=${currentTime}, lastFrameTimeRef=${lastFrameTimeRef.current}, elapsed=${currentTime - lastFrameTimeRef.current}, frameInterval=${frameInterval}`);
+    const processFrame = () => {
+      const color = samplePixelColor();
+      const brightness = color.brightness;
+      const purpleCheck = isPurpleEndFrame(color.red, color.green, color.blue);
+      const purpleFrame = purpleCheck.isPurple;
+
+      // Update display
+      setDisplayBrightness(brightness);
+      setDebugRgb(`R:${color.red} G:${color.green} B:${color.blue}`);
+      setDebugColor(`rgb(${color.red}, ${color.green}, ${color.blue})`);
+      setDebugThresholds(purpleCheck.checkStatus);
+      setDebugState(stateRef.current); // Update state every frame, not just on purple
+
+      // Log condition status when purple thresholds pass
+      if (purpleFrame) {
+        const condText = `state:${stateRef.current === 'receiving' ? '✓' : '✗'} decoded:${fileDecodedRef.current ? '✓' : '✗'} data:${decodedFileRef.current ? '✓' : '✗'}`;
+        setDebugConditions(condText);
+        console.log(`[Purple] thresholds OK. State='${stateRef.current}'. ${condText} streak=${purpleStreakRef.current}`);
       }
-      const elapsed = currentTime - lastFrameTimeRef.current;
 
-      if (elapsed >= frameInterval) {
-        const color = samplePixelColor();
-        const brightness = color.brightness;
-        const purpleCheck = isPurpleEndFrame(color.red, color.green, color.blue);
-        const purpleFrame = purpleCheck.isPurple;
-
-        // Update display
-        setDisplayBrightness(brightness);
-        setDebugRgb(`R:${color.red} G:${color.green} B:${color.blue}`);
-        setDebugColor(`rgb(${color.red}, ${color.green}, ${color.blue})`);
-        setDebugThresholds(purpleCheck.checkStatus);
-        setDebugState(stateRef.current); // Update state every frame, not just on purple
-
-        // Log condition status when purple thresholds pass
+      // --- SYNCING: waiting for the purple start marker before we accept any data bits ---
+      if (stateRef.current === 'syncing') {
         if (purpleFrame) {
-          const condText = `state:${stateRef.current === 'receiving' ? '✓' : '✗'} decoded:${fileDecodedRef.current ? '✓' : '✗'} data:${decodedFileRef.current ? '✓' : '✗'}`;
-          setDebugConditions(condText);
-          console.log(`[Purple] thresholds OK. State='${stateRef.current}'. ${condText} streak=${purpleStreakRef.current}`);
+          startMarkerStreakRef.current += 1;
+          setDebugStartMarkerStreak(startMarkerStreakRef.current);
+          if (startMarkerStreakRef.current >= 4 && !startMarkerConfirmedRef.current) {
+            startMarkerConfirmedRef.current = true;
+            console.log('[Receiver] ✓ Start marker locked (4 purple frames). Waiting for data to begin...');
+            setStatus('Start marker locked. Waiting for data...');
+          }
+          return;
         }
 
-        // --- SYNCING: waiting for the purple start marker before we accept any data bits ---
-        if (stateRef.current === 'syncing') {
-          if (purpleFrame) {
-            startMarkerStreakRef.current += 1;
-            setDebugStartMarkerStreak(startMarkerStreakRef.current);
-            if (startMarkerStreakRef.current >= 4 && !startMarkerConfirmedRef.current) {
-              startMarkerConfirmedRef.current = true;
-              console.log('[Receiver] ✓ Start marker locked (4 purple frames). Waiting for data to begin...');
-              setStatus('Start marker locked. Waiting for data...');
-            }
-            lastFrameTimeRef.current = currentTime;
-            rafRef.current = requestAnimationFrame(receive);
-            return;
-          }
-
-          if (!startMarkerConfirmedRef.current) {
-            // Not purple and we haven't locked the marker yet — still noise, keep waiting.
-            startMarkerStreakRef.current = 0;
-            setDebugStartMarkerStreak(0);
-            lastFrameTimeRef.current = currentTime;
-            rafRef.current = requestAnimationFrame(receive);
-            return;
-          }
-
-          // Marker was locked and this frame dropped out of purple — this is the first data bit.
-          console.log('[Receiver] Start marker ended. Transitioning to receiving state...');
-          stateRef.current = 'receiving';
-          setState('receiving');
-          setStatus('Receiving data...');
-          bitsRef.current = [];
-          purpleStreakRef.current = 0;
+        if (!startMarkerConfirmedRef.current) {
+          // Not purple and we haven't locked the marker yet — still noise, keep waiting.
           startMarkerStreakRef.current = 0;
-          startMarkerConfirmedRef.current = false;
           setDebugStartMarkerStreak(0);
-          // Fall through to bit accumulation below so this frame isn't lost.
-        }
-
-        // Handle purple frames even if we haven't yet decoded the file. When a stable purple streak
-        // is observed, attempt to decode the accumulated bits and complete reception.
-        if (stateRef.current === 'receiving' && purpleFrame) {
-          setDebugPurpleDetected(true);
-          purpleStreakRef.current += 1;
-          setDebugPurpleStreak(purpleStreakRef.current);
-          setStatus('END SIGNAL DETECTED...');
-
-          if (purpleStreakRef.current >= 4) {
-            // If not decoded yet, try decoding now using the accumulated bits
-            if (!fileDecodedRef.current) {
-              const decoded = decodeBits(bitsRef.current);
-              if (decoded.success && decoded.data) {
-                fileDecodedRef.current = true;
-                decodedFileRef.current = decoded.data;
-                console.log(`[Receiver] File decoded at end-marker. Size: ${decoded.data.length} bytes.`);
-                setStatus('File decoded from buffer. Completing reception...');
-              } else {
-                console.log('[Receiver] End-marker reached but decode failed.', decoded.error ?? 'no details');
-                setStatus(`Decode failed: ${decoded.error ?? 'unknown error'} (${bitsRef.current.length} bits buffered)`);
-              }
-            }
-
-            if (decodedFileRef.current) {
-              console.log('[Receiver] ✓ Purple end marker confirmed (4 frames). Completing reception.');
-              completeReception(decodedFileRef.current, bitsRef.current);
-            }
-          }
-
-          lastFrameTimeRef.current = currentTime;
-          rafRef.current = requestAnimationFrame(receive);
           return;
-        } else if (stateRef.current === 'receiving' && !purpleFrame) {
-          setDebugPurpleDetected(false);
-          setDebugPurpleStreak(0);
         }
 
+        // Marker was locked and this frame dropped out of purple — this is the first data bit.
+        console.log('[Receiver] Start marker ended. Transitioning to receiving state...');
+        stateRef.current = 'receiving';
+        setState('receiving');
+        setStatus('Receiving data...');
+        bitsRef.current = [];
         purpleStreakRef.current = 0;
+        startMarkerStreakRef.current = 0;
+        startMarkerConfirmedRef.current = false;
+        setDebugStartMarkerStreak(0);
+        // Fall through to bit accumulation below so this frame isn't lost.
+      }
 
-        if (fileDecodedRef.current || stateRef.current !== 'receiving') {
-          lastFrameTimeRef.current = currentTime;
-          rafRef.current = requestAnimationFrame(receive);
-          return;
-        }
+      // Handle purple frames even if we haven't yet decoded the file. When a stable purple streak
+      // is observed, attempt to decode the accumulated bits and complete reception.
+      if (stateRef.current === 'receiving' && purpleFrame) {
+        setDebugPurpleDetected(true);
+        purpleStreakRef.current += 1;
+        setDebugPurpleStreak(purpleStreakRef.current);
+        setStatus('END SIGNAL DETECTED...');
 
-        const bit = isBinaryWhiteFrame(brightness, color.red, color.green, color.blue);
-
-        // Add to bits using ref
-        bitsRef.current.push(bit);
-        const newBits = bitsRef.current;
-        setBits([...newBits]); // Update state for UI
-        setBitsReceived(newBits.length);
-
-        // Debug: log FIRST 20 BITS in detail
-        if (newBits.length <= 20) {
-          const whiteBool = isBinaryWhiteFrame(brightness, color.red, color.green, color.blue);
-          console.log(`[BitDetect] Frame ${newBits.length}: brightness=${brightness} (≥220? ${brightness >= 220}), RGB(${color.red},${color.green},${color.blue}), isWhite=${whiteBool}, bit=${bit ? '1' : '0'}`);
-        }
-
-        // Debug: log recent bits every 50 bits
-        if (newBits.length % 50 === 0) {
-          const recentBits = newBits.slice(-16).map(b => b ? '1' : '0').join('');
-          console.log(`[Receiver] ${newBits.length} bits received. Last 16: ${recentBits}, RGB: ${color.red}/${color.green}/${color.blue}, State: ${stateRef.current}`);
-        }
-
-        // Update brightness history
-        lastBrightnessRef.current = [
-          ...lastBrightnessRef.current.slice(-9),
-          brightness,
-        ];
-
-        // Blink detection: look for long dark intervals inconsistent with data
-        if (stateRef.current === 'receiving' && brightness < 100) {
-          darkIntervalRef.current += frameInterval;
-
-          // A dark interval > 200ms that isn't a normal 0-bit sequence suggests a blink
-          if (darkIntervalRef.current > 200 && newBits.length > 128) {
-            // Check if this is a valid data pause (0-bits are short, ~33ms each)
-            // A blink is an anomaly: 200ms+ of darkness
-            if (darkIntervalRef.current > 300) {
-              triggerBlinkDetection(newBits);
-            }
-          }
-        } else {
-          darkIntervalRef.current = 0;
-        }
-
-        // Try to decode (need at least magic + length = 64 bits before a decode attempt makes sense)
-        if (stateRef.current === 'receiving' && newBits.length >= 64) {
-          // Only decode if we haven't already successfully decoded
+        if (purpleStreakRef.current >= 4) {
+          // If not decoded yet, try decoding now using the accumulated bits
           if (!fileDecodedRef.current) {
-            const decoded = decodeBits(newBits);
+            const decoded = decodeBits(bitsRef.current);
             if (decoded.success && decoded.data) {
               fileDecodedRef.current = true;
               decodedFileRef.current = decoded.data;
-              console.log(`[Receiver] File decoded! Size: ${decoded.data.length} bytes. Waiting for purple end marker...`);
-              setStatus('File received. Waiting for purple end signal...');
+              console.log(`[Receiver] File decoded at end-marker. Size: ${decoded.data.length} bytes.`);
+              setStatus('File decoded from buffer. Completing reception...');
+            } else {
+              console.log('[Receiver] End-marker reached but decode failed.', decoded.error ?? 'no details');
+              setStatus(`Decode failed: ${decoded.error ?? 'unknown error'} (${bitsRef.current.length} bits buffered)`);
             }
+          }
+
+          if (decodedFileRef.current) {
+            console.log('[Receiver] ✓ Purple end marker confirmed (4 frames). Completing reception.');
+            completeReception(decodedFileRef.current, bitsRef.current);
           }
         }
 
-        lastFrameTimeRef.current = currentTime;
-      } else {
-        if (frameCount <= 5) {
-          console.log(`[RAF] Frame ${frameCount}: SKIPPED (elapsed ${Math.round(elapsed)}ms < frameInterval ${Math.round(frameInterval)}ms)`);
-        }
+        return;
+      } else if (stateRef.current === 'receiving' && !purpleFrame) {
+        setDebugPurpleDetected(false);
+        setDebugPurpleStreak(0);
       }
 
-      rafRef.current = requestAnimationFrame(receive);
+      purpleStreakRef.current = 0;
+
+      if (fileDecodedRef.current || stateRef.current !== 'receiving') {
+        return;
+      }
+
+      const bit = isBinaryWhiteFrame(brightness, color.red, color.green, color.blue);
+
+      // Add to bits using ref
+      bitsRef.current.push(bit);
+      const newBits = bitsRef.current;
+      setBits([...newBits]); // Update state for UI
+      setBitsReceived(newBits.length);
+
+      // Debug: log FIRST 20 BITS in detail
+      if (newBits.length <= 20) {
+        console.log(`[BitDetect] Frame ${newBits.length}: brightness=${brightness} (≥220? ${brightness >= 220}), RGB(${color.red},${color.green},${color.blue}), bit=${bit ? '1' : '0'}`);
+      }
+
+      // Debug: log recent bits every 50 bits
+      if (newBits.length % 50 === 0) {
+        const recentBits = newBits.slice(-16).map(b => b ? '1' : '0').join('');
+        console.log(`[Receiver] ${newBits.length} bits received. Last 16: ${recentBits}, RGB: ${color.red}/${color.green}/${color.blue}, State: ${stateRef.current}`);
+      }
+
+      // Update brightness history
+      lastBrightnessRef.current = [
+        ...lastBrightnessRef.current.slice(-9),
+        brightness,
+      ];
+
+      // Blink detection: look for long dark intervals inconsistent with data
+      if (brightness < 100) {
+        darkIntervalRef.current += frameInterval;
+
+        // A dark interval > 200ms that isn't a normal 0-bit sequence suggests a blink
+        if (darkIntervalRef.current > 200 && newBits.length > 128) {
+          // Check if this is a valid data pause (0-bits are short, ~33ms each)
+          // A blink is an anomaly: 200ms+ of darkness
+          if (darkIntervalRef.current > 300) {
+            triggerBlinkDetection(newBits);
+          }
+        }
+      } else {
+        darkIntervalRef.current = 0;
+      }
+
+      // Try to decode (need at least magic + length = 64 bits before a decode attempt makes sense)
+      if (newBits.length >= 64 && !fileDecodedRef.current) {
+        const decoded = decodeBits(newBits);
+        if (decoded.success && decoded.data) {
+          fileDecodedRef.current = true;
+          decodedFileRef.current = decoded.data;
+          console.log(`[Receiver] File decoded! Size: ${decoded.data.length} bytes. Waiting for purple end marker...`);
+          setStatus('File received. Waiting for purple end signal...');
+        }
+      }
     };
 
-    rafRef.current = requestAnimationFrame(receive);
+    const video = videoRef.current;
+    if (video && typeof video.requestVideoFrameCallback === 'function') {
+      console.log('[startReception] Using requestVideoFrameCallback for frame-locked sampling.');
+      const loop = () => {
+        processFrame();
+        videoFrameHandleRef.current = video.requestVideoFrameCallback(loop);
+      };
+      videoFrameHandleRef.current = video.requestVideoFrameCallback(loop);
+    } else {
+      console.log('[startReception] requestVideoFrameCallback unsupported — falling back to timer polling.');
+      const tick = () => {
+        processFrame();
+        fallbackTimerRef.current = setTimeout(tick, frameInterval);
+      };
+      tick();
+    }
+  };
+
+  /**
+   * Stop the frame capture loop, whichever driver (requestVideoFrameCallback or
+   * the fallback timer) is currently running it.
+   */
+  const stopFrameCapture = () => {
+    if (videoFrameHandleRef.current !== undefined && videoRef.current) {
+      videoRef.current.cancelVideoFrameCallback(videoFrameHandleRef.current);
+      videoFrameHandleRef.current = undefined;
+    }
+    if (fallbackTimerRef.current !== undefined) {
+      clearTimeout(fallbackTimerRef.current);
+      fallbackTimerRef.current = undefined;
+    }
   };
 
   /**
@@ -409,10 +413,7 @@ export default function ReceivePage() {
     const blob = createBlob(data);
     downloadBlob(blob, 'received_file.bin');
 
-    // Stop RAF
-    if (rafRef.current) {
-      cancelAnimationFrame(rafRef.current);
-    }
+    stopFrameCapture();
   };
 
   /**
@@ -422,10 +423,8 @@ export default function ReceivePage() {
     if (countdownTimerRef.current) {
       clearInterval(countdownTimerRef.current);
     }
-    
-    if (rafRef.current) {
-      cancelAnimationFrame(rafRef.current);
-    }
+
+    stopFrameCapture();
 
     if (videoRef.current && videoRef.current.srcObject) {
       const stream = videoRef.current.srcObject as MediaStream;
@@ -466,9 +465,7 @@ export default function ReceivePage() {
       if (countdownTimerRef.current) {
         clearInterval(countdownTimerRef.current);
       }
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current);
-      }
+      stopFrameCapture();
       if (videoRef.current && videoRef.current.srcObject) {
         const stream = videoRef.current.srcObject as MediaStream;
         stream.getTracks().forEach((track) => track.stop());
