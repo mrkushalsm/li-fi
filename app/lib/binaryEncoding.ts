@@ -85,28 +85,21 @@ export function encodeFile(file: File): Promise<EncodeResult> {
  * Returns index where sync ends, or -1 if not found
  */
 export function detectSyncPreamble(bits: boolean[]): number {
-  if (bits.length < 128) return -1; // Need at least 128 bits for full preamble
+  const PREAMBLE_LENGTH = 128;
+  if (bits.length < PREAMBLE_LENGTH) return -1; // Need at least 128 bits for full preamble
 
-  const preamblePattern = [true, false, true, false, true, false, true, false];
-  let syncCount = 0;
-
-  for (let i = 0; i <= bits.length - 8; i++) {
+  for (let i = 0; i <= bits.length - PREAMBLE_LENGTH; i++) {
     let matches = true;
-    for (let j = 0; j < 8; j++) {
-      if (bits[i + j] !== preamblePattern[j]) {
+    for (let k = 0; k < PREAMBLE_LENGTH; k++) {
+      // Alternating pattern starting with 1: bit at offset k should be true when k is even
+      if (bits[i + k] !== (k % 2 === 0)) {
         matches = false;
         break;
       }
     }
 
     if (matches) {
-      syncCount++;
-      if (syncCount >= 16) {
-        // Found full 16-byte preamble
-        return i + 128; // Return position after preamble
-      }
-    } else {
-      syncCount = 0;
+      return i + PREAMBLE_LENGTH; // Return position after preamble
     }
   }
 
